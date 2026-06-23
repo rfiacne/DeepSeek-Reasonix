@@ -498,16 +498,23 @@ func (c *client) readStream(ctx context.Context, resp *http.Response, out chan<-
 	return emitted, nil
 }
 
-// normaliseUsage folds the two cache-hit shapes the OpenAI-compatible ecosystem
+// normaliseUsage folds the cache-hit shapes the OpenAI-compatible ecosystem
 // uses into a single Usage: DeepSeek puts prompt_cache_{hit,miss}_tokens at the
-// top of usage; OpenAI and MiMo put it nested under prompt_tokens_details.
-// Whichever side reports non-zero wins; miss is derived when only hit is given.
-// Reasoning tokens land in completion_tokens_details on thinking-mode models.
+// top of usage; OpenAI and MiMo put it nested under prompt_tokens_details; some
+// third-party proxies emit cached_tokens at the top level. Whichever side
+// reports non-zero wins (priority: DeepSeek fields > nested > top-level); miss
+// is derived when only hit is given. Reasoning tokens land in
+// completion_tokens_details on thinking-mode models, or at the top level on
+// some third-party proxies.
 func normaliseUsage(u *wireUsage) *provider.Usage {
 	hit := u.PromptCacheHitTokens
 	miss := u.PromptCacheMissTokens
 	if hit == 0 && u.PromptTokensDetails != nil {
 		hit = u.PromptTokensDetails.CachedTokens
+	}
+	// Third-party proxies may emit cached_tokens at the top level only.
+	if hit == 0 && u.CachedTokens > 0 {
+		hit = u.CachedTokens
 	}
 	if miss == 0 && hit > 0 && u.PromptTokens > hit {
 		miss = u.PromptTokens - hit
@@ -515,6 +522,10 @@ func normaliseUsage(u *wireUsage) *provider.Usage {
 	reasoning := 0
 	if u.CompletionTokensDetails != nil {
 		reasoning = u.CompletionTokensDetails.ReasoningTokens
+	}
+	// Third-party proxies may emit reasoning_tokens at the top level only.
+	if reasoning == 0 && u.ReasoningTokensTop > 0 {
+		reasoning = u.ReasoningTokensTop
 	}
 	return &provider.Usage{
 		PromptTokens:     u.PromptTokens,
@@ -620,15 +631,20 @@ type streamResponse struct {
 	} `json:"error"`
 }
 
-// wireUsage covers both DeepSeek's top-level cache fields and the
-// OpenAI/MiMo nested details — normaliseUsage chooses whichever side
-// reports values.
+// wireUsage covers DeepSeek's top-level cache fields, third-party proxies that
+// emit cached_tokens/reasoning_tokens at the top level, and the OpenAI/MiMo
+// nested details — normaliseUsage chooses whichever side reports values.
 type wireUsage struct {
 	PromptTokens          int `json:"prompt_tokens"`
 	CompletionTokens      int `json:"completion_tokens"`
 	TotalTokens           int `json:"total_tokens"`
 	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
+	// Top-level cached_tokens and reasoning_tokens are emitted by some
+	// third-party OpenAI-compatible proxies (e.g. certain DeepSeek relays)
+	// that don't nest them under prompt_tokens_details / completion_tokens_details.
+	CachedTokens   int `json:"cached_tokens"`
+	ReasoningTokensTop int `json:"reasoning_tokens"`
 	PromptTokensDetails   *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`

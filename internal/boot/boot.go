@@ -49,6 +49,30 @@ import (
 // removed provider. Callers can detect it (errors.Is) to re-run setup.
 var ErrUnknownModel = errors.New("unknown model")
 
+// defaultContextWindow is the fallback context window size (128k tokens) when
+// a provider entry omits context_window in config.
+const defaultContextWindow = 128000
+
+// deepSeekContextWindow is the context window size for DeepSeek models (1M tokens).
+const deepSeekContextWindow = 1_000_000
+
+// resolveContextWindow returns the effective context window size. Positive values
+// pass through, zero gets a model-aware fallback (1M for DeepSeek, 128k otherwise),
+// negative values are preserved.
+func resolveContextWindow(configured int, model string) int {
+	if configured > 0 {
+		return configured
+	}
+	if configured == 0 {
+		// DeepSeek models default to 1M context
+		if strings.Contains(strings.ToLower(model), "deepseek") {
+			return deepSeekContextWindow
+		}
+		return defaultContextWindow
+	}
+	return configured
+}
+
 func agentKeepPolicy(keep []string) agent.KeepPolicy {
 	if keep == nil {
 		return agent.KeepErrors
@@ -523,7 +547,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		return p, me.Price, me.ContextWindow, nil
+		return p, me.Price, resolveContextWindow(me.ContextWindow, me.Model), nil
 	}
 	subagentIdentity := func(modelRef, effort string) (string, string) {
 		return subagentEffectiveIdentity(cfg, modelName, entry, modelRef, effort)
@@ -537,7 +561,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		}
 		taskToolAdded = true
 		tt := agent.NewTaskTool(execProv, entry.Price, reg, maxSteps,
-			entry.ContextWindow, cfg.Agent.RecentKeep, cfg.Agent.SoftCompactRatio, cfg.Agent.CompactRatio, cfg.Agent.CompactForceRatio,
+			resolveContextWindow(entry.ContextWindow, entry.Model), cfg.Agent.RecentKeep, cfg.Agent.SoftCompactRatio, cfg.Agent.CompactRatio, cfg.Agent.CompactForceRatio,
 			cfg.Agent.Temperature, config.ArchiveDir(), "", headlessGate,
 			keepPolicy,
 			taskModel, taskEffort, resolveSubagentProvider).
@@ -580,7 +604,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// Its tool activity nests under the invoking call, like `task`.
 	skillRunner := func(sctx context.Context, sk skill.Skill, task string, runOpts skill.SubagentRunOptions) (string, error) {
 		sk = skill.WithCodeGraphTools(sk, skill.CodeGraphReadTools(reg))
-		prov, price, ctxWin := execProv, entry.Price, entry.ContextWindow
+		prov, price, ctxWin := execProv, entry.Price, resolveContextWindow(entry.ContextWindow, entry.Model)
 		modelRef := subagentModelRef(cfg, sk)
 		effortRef := subagentEffortRef(cfg, sk)
 		if modelRef != "" || effortRef != "" {
@@ -845,7 +869,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Hooks:                hookRunner,
 		Jobs:                 jm,
 		ProjectChecks:        projectChecks,
-		ContextWindow:        entry.ContextWindow,
+		ContextWindow:        resolveContextWindow(entry.ContextWindow, entry.Model),
 		SoftCompactRatio:     cfg.Agent.SoftCompactRatio,
 		CompactRatio:         cfg.Agent.CompactRatio,
 		CompactForceRatio:    cfg.Agent.CompactForceRatio,
@@ -893,7 +917,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				MaxSteps:          cfg.Agent.PlannerMaxSteps,
 				MaxStepsKey:       "agent.planner_max_steps",
 				Gate:              headlessGate,
-				ContextWindow:     pe.ContextWindow,
+				ContextWindow:     resolveContextWindow(pe.ContextWindow, pe.Model),
 				SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
 				CompactRatio:      cfg.Agent.CompactRatio,
 				CompactForceRatio: cfg.Agent.CompactForceRatio,

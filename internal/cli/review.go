@@ -84,11 +84,16 @@ func reviewCommand(args []string) int {
 
 	// 7. Run the review subagent.
 	ctx := context.Background()
+	// Apply context window fallback: use 128k if not configured.
+	contextWindow := entry.ContextWindow
+	if contextWindow == 0 {
+		contextWindow = 128000
+	}
 	result, err := agent.RunSubAgentWithSession(ctx, prov, reg, agent.NewSession(reviewSk.Body), task, agent.Options{
 		MaxSteps:      12,
 		Temperature:   cfg.Agent.Temperature,
 		Pricing:       entry.Price,
-		ContextWindow: entry.ContextWindow,
+		ContextWindow: contextWindow,
 	}, event.Discard)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error: review failed:", err)

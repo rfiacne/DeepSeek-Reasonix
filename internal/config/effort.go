@@ -212,7 +212,7 @@ func normalizeStoredEffort(raw string) string {
 
 // ReasoningProtocolForEntry resolves the provider request shape for reasoning
 // controls. Explicit config wins, then the model capability registry, then legacy
-// endpoint heuristics.
+// endpoint heuristics, then model-name heuristics for third-party proxies.
 func ReasoningProtocolForEntry(e *ProviderEntry) string {
 	if explicit := explicitReasoningProtocol(e); explicit != "" {
 		return explicit
@@ -221,6 +221,9 @@ func ReasoningProtocolForEntry(e *ProviderEntry) string {
 		return cap.Protocol
 	}
 	if isDeepSeekEntry(e) {
+		return ReasoningProtocolDeepSeek
+	}
+	if isDeepSeekModel(e) {
 		return ReasoningProtocolDeepSeek
 	}
 	return ""
@@ -253,6 +256,17 @@ func normalizeReasoningProtocol(raw string) string {
 // the config layer stay in lockstep when new gateways are added.
 func isDeepSeekEntry(e *ProviderEntry) bool {
 	return e != nil && e.Kind == "openai" && openai.IsDeepSeek(e.BaseURL)
+}
+
+// isDeepSeekModel reports whether the model name looks like a DeepSeek model,
+// even when accessed through a third-party proxy. This enables effort support
+// for DeepSeek models served by non-DeepSeek endpoints.
+func isDeepSeekModel(e *ProviderEntry) bool {
+	if e == nil || e.Kind != "openai" {
+		return false
+	}
+	model := strings.ToLower(strings.TrimSpace(e.Model))
+	return strings.HasPrefix(model, "deepseek-") || strings.Contains(model, "deepseek")
 }
 
 // isMiniMaxEntry reports whether the entry points at MiniMax's OpenAI-compatible

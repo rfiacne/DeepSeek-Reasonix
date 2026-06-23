@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestIsDeepSeekModel(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		want  bool
+	}{
+		{"deepseek-v3", true},
+		{"deepseek-v4-flash", true},
+		{"deepseek-v4-pro", true},
+		{"DeepSeek-V3", true}, // case-insensitive
+		{"DEEPSEEK-V3", true},
+		{"deepseek", true},
+		{"deepseek-coder", true},
+		{"some-deepseek-model", true},
+		{"gpt-4", false},
+		{"claude-3-opus", false},
+		{"minimax-m3", false},
+		{"", false},
+	} {
+		e := &ProviderEntry{Kind: "openai", Model: tc.model}
+		if got := isDeepSeekModel(e); got != tc.want {
+			t.Errorf("model=%q: isDeepSeekModel=%v, want %v", tc.model, got, tc.want)
+		}
+	}
+}
+
 func TestIsMiniMaxEntry(t *testing.T) {
 	for _, tc := range []struct {
 		baseURL string

@@ -47,6 +47,28 @@ func TestAgentKeepPolicyFromConfig(t *testing.T) {
 	}
 }
 
+func TestResolveContextWindow(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  int
+		model  string
+		want   int
+	}{
+		{"positive passes through", 200000, "gpt-4", 200000},
+		{"zero gets default for non-deepseek", 0, "gpt-4", defaultContextWindow},
+		{"zero gets 1M for deepseek", 0, "deepseek-v3", deepSeekContextWindow},
+		{"zero gets 1M for deepseek with prefix", 0, "ocg/deepseek-v4-flash", deepSeekContextWindow},
+		{"negative preserved", -1, "gpt-4", -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveContextWindow(tt.input, tt.model); got != tt.want {
+				t.Errorf("resolveContextWindow(%d, %q) = %d, want %d", tt.input, tt.model, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestBuildFoldsProjectMemoryIntoSystemPrompt is the end-to-end proof of the
 // cache-first wiring: a project REASONIX.md is discovered at boot and folded
 // into the session's system message (the cached prefix), and the `remember`
